@@ -8,8 +8,12 @@ print(tf.__version__)
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 
 physical_devices = tf.config.list_physical_devices('GPU')
-print(physical_devices)
-tf.config.experimental.set_memory_growth(physical_devices[0], True)
+print("Available GPUs:", physical_devices)
+
+if physical_devices:
+    tf.config.experimental.set_memory_growth(physical_devices[0], True)
+else:
+    print("No compatible GPU detected. Using CPU.")
 
 base_path = '.\\train_sample_videos\\'
 
@@ -22,6 +26,8 @@ with open(os.path.join(base_path, 'metadata.json')) as metadata_json:
     metadata = json.load(metadata_json)
     print(len(metadata))
 
+    detector = MTCNN()
+
 for filename in metadata.keys():
     tmp_path = os.path.join(base_path, get_filename_only(filename))
     print('Processing Directory: ' + tmp_path)
@@ -33,7 +39,7 @@ for filename in metadata.keys():
 
     for frame in frame_images:
         print('Processing ', frame)
-        detector = MTCNN()
+    
         image = cv2.cvtColor(cv2.imread(os.path.join(tmp_path, frame)), cv2.COLOR_BGR2RGB)
         results = detector.detect_faces(image)
         print('Face Detected: ', len(results))

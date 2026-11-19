@@ -1,65 +1,99 @@
+
 import json
-import os
-from distutils.dir_util import copy_tree
 import shutil
-import numpy as np
-import split_folders
+from pathlib import Path
 
-base_path = '.\\train_sample_videos\\'
-dataset_path = '.\\prepared_dataset\\'
-print('Creating Directory: ' + dataset_path)
-os.makedirs(dataset_path, exist_ok=True)
+# Project folders
+base_path = Path("train_sample_videos")
+output_path = Path("split_dataset")
 
-tmp_fake_path = '.\\tmp_fake_faces'
-print('Creating Directory: ' + tmp_fake_path)
-os.makedirs(tmp_fake_path, exist_ok=True)
+# Assign each video to a dataset group.
+# This is a small pipeline test, not a final evaluation.
 
-def get_filename_only(file_path):
-    file_basename = os.path.basename(file_path)
-    filename_only = file_basename.split('.')[0]
-    return filename_only
+video_splits = {
+    # Training: 3 REAL + 3 FAKE
+    "id1_0009.mp4": "train",
+    "id3_0006.mp4": "train",
+    "id9_0009.mp4": "train",
+    "id0_id17_0006.mp4": "train",
+    "id0_id28_0001.mp4": "train",
+    "id1_id6_0001.mp4": "train",
 
-with open(os.path.join(base_path, 'metadata.json')) as metadata_json:
-    metadata = json.load(metadata_json)
-    print(len(metadata))
+    # Validation: 1 REAL + 1 FAKE
+    "id16_0005.mp4": "val",
+    "id0_id1_0001.mp4": "val",
 
-real_path = os.path.join(dataset_path, 'real')
-print('Creating Directory: ' + real_path)
-os.makedirs(real_path, exist_ok=True)
+    # Testing: 1 REAL + 1 FAKE
+    "id21_0004.mp4": "test",
+    "id1_id20_0003.mp4": "test",
+}
 
-fake_path = os.path.join(dataset_path, 'fake')
-print('Creating Directory: ' + fake_path)
-os.makedirs(fake_path, exist_ok=True)
+# Load the real/fake labels
+with open(base_path / "metadata.json", "r") as f:
+    metadata = json.load(f)
 
-for filename in metadata.keys():
-    print(filename)
-    print(metadata[filename]['label'])
-    tmp_path = os.path.join(os.path.join(base_path, get_filename_only(filename)), 'faces')
-    print(tmp_path)
-    if os.path.exists(tmp_path):
-        if metadata[filename]['label'] == 'REAL':    
-            print('Copying to :' + real_path)
-            copy_tree(tmp_path, real_path)
-        elif metadata[filename]['label'] == 'FAKE':
-            print('Copying to :' + tmp_fake_path)
-            copy_tree(tmp_path, tmp_fake_path)
-        else:
-            print('Ignored..')
+# Check that all selected videos have labels
+if set(metadata) != set(video_splits):
+    raise ValueError(
+        "Video filenames in metadata.json do not "
+        "match the video_splits dictionary."
+    )
 
-all_real_faces = [f for f in os.listdir(real_path) if os.path.isfile(os.path.join(real_path, f))]
-print('Total Number of Real faces: ', len(all_real_faces))
+# Create fresh output folders
+if output_path.exists():
+    shutil.rmtree(output_path)
 
-all_fake_faces = [f for f in os.listdir(tmp_fake_path) if os.path.isfile(os.path.join(tmp_fake_path, f))]
-print('Total Number of Fake faces: ', len(all_fake_faces))
+for split in ["train", "val", "test"]:
+    for label in ["real", "fake"]:
+        (output_path / split / label).mkdir(
+            parents=True, exist_ok=True
+        )
 
-random_faces = np.random.choice(all_fake_faces, len(all_real_faces), replace=False)
-for fname in random_faces:
-    src = os.path.join(tmp_fake_path, fname)
-    dst = os.path.join(fake_path, fname)
-    shutil.copyfile(src, dst)
+# Copy cropped faces into their assigned groups
+for filename, split in video_splits.items():
+    label = metadata[filename]["label"].lower()
 
-print('Down-sampling Done!')
+    if label not in ["real", "fake"]:
+        raise ValueError(f"Invalid label for {filename}")
 
-# Split into Train/ Val/ Test folders
-split_folders.ratio(dataset_path, output='split_dataset', seed=1377, ratio=(.8, .1, .1)) # default values
-print('Train/ Val/ Test Split Done!')
+    video_name = Path(filename).stem
+    faces_folder = base_path / video_name / "faces"
+    destination = output_path / split / label
+
+    if not faces_folder.exists():
+        raise FileNotFoundError(
+            f"Missing faces folder: {faces_folder}"
+        )
+
+    images = list(faces_folder.glob("*.png"))
+
+    if not images:
+        raise ValueError(
+            f"No cropped faces found for {filename}"
+        )
+
+    for image in images:
+        # Prefix filenames to prevent name collisions
+        new_name = f"{video_name}_{image.name}"
+        shutil.copy2(image, destination / new_name)
+
+    print(
+        f"{split.upper():5} | {label.upper():4} | "
+        f"{filename} | {len(images)} faces"
+    )
+
+# Print dataset summary
+print("\nDATASET SUMMARY")
+
+for split in ["train", "val", "test"]:
+    total = 0
+
+    for label in ["real", "fake"]:
+        folder = output_path / split / label
+        count = len(list(folder.glob("*.png")))
+        total += count
+        print(f"{split}/{label}: {count}")
+
+    print(f"{split} total: {total}\n")
+
+print("Dataset preparation complete!")
